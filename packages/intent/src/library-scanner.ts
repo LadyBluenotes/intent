@@ -38,6 +38,18 @@ function readPkgJson(dir: string): Record<string, unknown> | null {
   }
 }
 
+function findPnpFile(start: string): boolean {
+  let dir = start
+  while (true) {
+    for (const fileName of ['.pnp.cjs', '.pnp.js']) {
+      if (existsSync(join(dir, fileName))) return true
+    }
+    const next = dirname(dir)
+    if (next === dir) return false
+    dir = next
+  }
+}
+
 function findHomeDir(scriptPath: string): string | null {
   let dir = dirname(scriptPath)
   for (;;) {
@@ -132,6 +144,7 @@ export function scanLibrary(
 
   const homeName = typeof homePkg.name === 'string' ? homePkg.name : ''
   const scanRoot = projectRoot ?? homeDir
+  const pnpEnabled = findPnpFile(homeDir)
 
   function processPackage(name: string, dir: string): void {
     if (visited.has(name)) return
@@ -151,7 +164,8 @@ export function scanLibrary(
       packageRoot: dir,
       projectRoot: scanRoot,
       skills,
-    })
+      pnpEnabled,
+    }).warnings.forEach((w) => warnings.push(w))
 
     packages.push({
       name,

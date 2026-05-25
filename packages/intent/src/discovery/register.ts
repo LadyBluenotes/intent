@@ -11,8 +11,13 @@ import type {
 
 type PackageJson = Record<string, unknown>
 
+interface TryRegisterOptions {
+  rewriteLoadPaths?: boolean
+}
+
 function isLocalToProject(dirPath: string, projectRoot: string): boolean {
   return (
+    dirPath === projectRoot ||
     dirPath.startsWith(projectRoot + sep) ||
     dirPath.startsWith(projectRoot + '/')
   )
@@ -25,6 +30,7 @@ export interface CreatePackageRegistrarOptions {
   getPackageDepth: (packageRoot: string, projectRoot: string) => number
   packageIndexes: Map<string, number>
   packages: Array<IntentPackage>
+  pnpEnabled?: boolean
   projectRoot: string
   readPkgJson: (dirPath: string) => PackageJson | null
   getFsIdentity: (path: string) => string
@@ -72,6 +78,7 @@ export function createPackageRegistrar(opts: CreatePackageRegistrarOptions) {
     dirPath: string,
     fallbackName: string,
     source: IntentPackage['source'] = 'local',
+    registerOptions: TryRegisterOptions = {},
   ): boolean {
     if (!shouldAttemptPackageRoot(dirPath)) return false
 
@@ -99,13 +106,18 @@ export function createPackageRegistrar(opts: CreatePackageRegistrarOptions) {
 
     const skills = opts.discoverSkills(skillsDir, name)
 
-    if (isLocalToProject(dirPath, opts.projectRoot)) {
-      rewriteSkillLoadPaths({
+    if (
+      registerOptions.rewriteLoadPaths ||
+      isLocalToProject(dirPath, opts.projectRoot)
+    ) {
+      const rewriteResult = rewriteSkillLoadPaths({
         packageName: name,
         packageRoot: dirPath,
         projectRoot: opts.projectRoot,
         skills,
+        pnpEnabled: opts.pnpEnabled,
       })
+      rewriteResult.warnings.forEach((w) => opts.warnings.push(w))
     }
 
     const candidate: IntentPackage = {

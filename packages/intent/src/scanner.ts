@@ -490,6 +490,8 @@ export function scanForIntents(
     return fsCache.readPackageJson(dirPath)
   }
 
+  const pnpEnabled = scanScope !== 'global' && findPnpFile(projectRoot) !== null
+
   const { scanNodeModulesDir, scanTarget, tryRegister } =
     createPackageRegistrar({
       comparePackageVersions,
@@ -499,6 +501,7 @@ export function scanForIntents(
       getFsIdentity: fsCache.getFsIdentity,
       packageIndexes,
       packages,
+      pnpEnabled,
       projectRoot,
       readPkgJson,
       rememberVariant,
@@ -542,7 +545,9 @@ export function scanForIntents(
       if (!info) return
 
       const packageRoot = info.packageLocation.replace(/[\\/]$/, '')
-      tryRegister(packageRoot, locator.name ?? 'unknown')
+      tryRegister(packageRoot, locator.name ?? 'unknown', 'local', {
+        rewriteLoadPaths: true,
+      })
 
       for (const [dependencyName, target] of info.packageDependencies) {
         const dependencyLocator = getPnpDependencyLocator(
@@ -570,12 +575,10 @@ export function scanForIntents(
     assertLocalNodeModulesSupported(projectRoot)
     const packageCountBeforeLocalDiscovery = packages.length
     walkWorkspacePackages()
-    const packageCountBeforeDependencyDiscovery = packages.length
     scanTarget(nodeModules.local)
     walkKnownPackages()
     walkProjectDeps()
-    const shouldTryPnpFallback =
-      packages.length === packageCountBeforeDependencyDiscovery
+    const shouldScanPnp = pnpEnabled
 
     if (
       nodeModules.local.path &&
@@ -585,7 +588,7 @@ export function scanForIntents(
       scanNestedNodeModulesDir(nodeModules.local.path)
     }
 
-    if (shouldTryPnpFallback) {
+    if (shouldScanPnp) {
       const api = getPnpApi()
       if (api) {
         scanPnpPackages(api)
@@ -613,7 +616,11 @@ export function scanForIntents(
       break
   }
 
-  if (!nodeModules.local.exists && !nodeModules.global.exists) {
+  if (
+    !nodeModules.local.exists &&
+    !nodeModules.global.exists &&
+    packages.length === 0
+  ) {
     return {
       packageManager,
       packages,

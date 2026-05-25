@@ -2415,6 +2415,435 @@ describe('cli commands', () => {
   })
 })
 
+describe('PnP mode CLI commands', () => {
+  it('lists packages discovered via Yarn PnP', async () => {
+    const root = mkdtempSync(join(realTmpdir, 'intent-cli-pnp-list-'))
+    tempDirs.push(root)
+
+    const queryDir = join(
+      root,
+      '.yarn',
+      'cache',
+      '@tanstack-query-npm-5.0.0.zip',
+      'node_modules',
+      '@tanstack',
+      'query',
+    )
+    mkdirSync(queryDir, { recursive: true })
+    writeJson(join(root, 'package.json'), {
+      name: 'pnp-list-project',
+      version: '1.0.0',
+      private: true,
+      packageManager: 'yarn@4.0.0',
+      dependencies: { '@tanstack/query': '5.0.0' },
+    })
+    writeFileSync(join(root, 'yarn.lock'), '')
+    writeJson(join(queryDir, 'package.json'), {
+      name: '@tanstack/query',
+      version: '5.0.0',
+      intent: { version: 1, repo: 'TanStack/query', docs: 'docs/' },
+    })
+    writeSkillMd(join(queryDir, 'skills', 'fetching'), {
+      name: 'fetching',
+      description: 'Query fetching skill',
+    })
+
+    const sep = queryDir.includes('/') ? '/' : '\\'
+    writeFileSync(
+      join(root, '.pnp.cjs'),
+      [
+        `const projectRoot = ${JSON.stringify(`${root}${sep}`)}`,
+        `const queryRoot = ${JSON.stringify(`${queryDir}${sep}`)}`,
+        "const rootLocator = { name: 'pnp-list-project', reference: 'workspace:.' }",
+        "const queryLocator = { name: '@tanstack/query', reference: 'npm:5.0.0' }",
+        'module.exports = {',
+        '  getDependencyTreeRoots() { return [rootLocator] },',
+        '  findPackageLocator(location) {',
+        '    if (location.startsWith(queryRoot)) return queryLocator',
+        '    if (location.startsWith(projectRoot)) return rootLocator',
+        '    return null',
+        '  },',
+        '  getPackageInformation(locator) {',
+        "    if (locator.name === 'pnp-list-project') {",
+        '      return {',
+        '        packageLocation: projectRoot,',
+        "        packageDependencies: new Map([['@tanstack/query', 'npm:5.0.0']]),",
+        '      }',
+        '    }',
+        "    if (locator.name === '@tanstack/query') {",
+        '      return {',
+        '        packageLocation: queryRoot,',
+        '        packageDependencies: new Map(),',
+        '      }',
+        '    }',
+        '    return null',
+        '  },',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    process.chdir(root)
+
+    const exitCode = await main(['list', '--json'])
+    const output = logSpy.mock.calls.at(-1)?.[0]
+    const parsed = JSON.parse(String(output)) as {
+      packages: Array<{ name: string; version: string }>
+      skills: Array<{ use: string; packageName: string; skillName: string }>
+    }
+
+    expect(exitCode).toBe(0)
+    expect(parsed.packages).toHaveLength(1)
+    expect(parsed.packages[0]!.name).toBe('@tanstack/query')
+    expect(parsed.packages[0]!.version).toBe('5.0.0')
+    expect(parsed.skills[0]!.use).toBe('@tanstack/query#fetching')
+    expect(parsed.skills[0]!.packageName).toBe('@tanstack/query')
+    expect(parsed.skills[0]!.skillName).toBe('fetching')
+  })
+
+  it('loads a skill via PnP with stable path output', async () => {
+    const root = mkdtempSync(join(realTmpdir, 'intent-cli-pnp-load-'))
+    tempDirs.push(root)
+
+    const queryDir = join(
+      root,
+      '.yarn',
+      'cache',
+      '@tanstack-query-npm-5.0.0.zip',
+      'node_modules',
+      '@tanstack',
+      'query',
+    )
+    mkdirSync(queryDir, { recursive: true })
+    writeJson(join(root, 'package.json'), {
+      name: 'pnp-load-project',
+      version: '1.0.0',
+      private: true,
+      packageManager: 'yarn@4.0.0',
+      dependencies: { '@tanstack/query': '5.0.0' },
+    })
+    writeFileSync(join(root, 'yarn.lock'), '')
+    writeJson(join(queryDir, 'package.json'), {
+      name: '@tanstack/query',
+      version: '5.0.0',
+      intent: { version: 1, repo: 'TanStack/query', docs: 'docs/' },
+    })
+    writeSkillMd(join(queryDir, 'skills', 'fetching'), {
+      name: 'fetching',
+      description: 'Query fetching skill',
+    })
+
+    const sep = queryDir.includes('/') ? '/' : '\\'
+    writeFileSync(
+      join(root, '.pnp.cjs'),
+      [
+        `const projectRoot = ${JSON.stringify(`${root}${sep}`)}`,
+        `const queryRoot = ${JSON.stringify(`${queryDir}${sep}`)}`,
+        "const rootLocator = { name: 'pnp-load-project', reference: 'workspace:.' }",
+        "const queryLocator = { name: '@tanstack/query', reference: 'npm:5.0.0' }",
+        'module.exports = {',
+        '  getDependencyTreeRoots() { return [rootLocator] },',
+        '  findPackageLocator(location) {',
+        '    if (location.startsWith(queryRoot)) return queryLocator',
+        '    if (location.startsWith(projectRoot)) return rootLocator',
+        '    return null',
+        '  },',
+        '  getPackageInformation(locator) {',
+        "    if (locator.name === 'pnp-load-project') {",
+        '      return {',
+        '        packageLocation: projectRoot,',
+        "        packageDependencies: new Map([['@tanstack/query', 'npm:5.0.0']]),",
+        '      }',
+        '    }',
+        "    if (locator.name === '@tanstack/query') {",
+        '      return {',
+        '        packageLocation: queryRoot,',
+        '        packageDependencies: new Map(),',
+        '      }',
+        '    }',
+        '    return null',
+        '  },',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    process.chdir(root)
+
+    const exitCode = await main(['load', '@tanstack/query#fetching', '--path'])
+    const output = logSpy.mock.calls.flat().join('\n')
+
+    expect(exitCode).toBe(0)
+    // Path should be stable node_modules format
+    expect(output).toBe('node_modules/@tanstack/query/skills/fetching/SKILL.md')
+    expect(output).not.toContain('.yarn')
+  })
+
+  it('loads skill content via PnP', async () => {
+    const root = mkdtempSync(join(realTmpdir, 'intent-cli-pnp-load-content-'))
+    tempDirs.push(root)
+
+    const queryDir = join(
+      root,
+      '.yarn',
+      'cache',
+      '@tanstack-query-npm-5.0.0.zip',
+      'node_modules',
+      '@tanstack',
+      'query',
+    )
+    mkdirSync(queryDir, { recursive: true })
+    writeJson(join(root, 'package.json'), {
+      name: 'pnp-load-content-project',
+      version: '1.0.0',
+      private: true,
+      packageManager: 'yarn@4.0.0',
+      dependencies: { '@tanstack/query': '5.0.0' },
+    })
+    writeFileSync(join(root, 'yarn.lock'), '')
+    writeJson(join(queryDir, 'package.json'), {
+      name: '@tanstack/query',
+      version: '5.0.0',
+      intent: { version: 1, repo: 'TanStack/query', docs: 'docs/' },
+    })
+    writeSkillMd(join(queryDir, 'skills', 'fetching'), {
+      name: 'fetching',
+      description: 'Query fetching skill',
+    })
+
+    const sep = queryDir.includes('/') ? '/' : '\\'
+    writeFileSync(
+      join(root, '.pnp.cjs'),
+      [
+        `const projectRoot = ${JSON.stringify(`${root}${sep}`)}`,
+        `const queryRoot = ${JSON.stringify(`${queryDir}${sep}`)}`,
+        "const rootLocator = { name: 'pnp-load-content-project', reference: 'workspace:.' }",
+        "const queryLocator = { name: '@tanstack/query', reference: 'npm:5.0.0' }",
+        'module.exports = {',
+        '  getDependencyTreeRoots() { return [rootLocator] },',
+        '  findPackageLocator(location) {',
+        '    if (location.startsWith(queryRoot)) return queryLocator',
+        '    if (location.startsWith(projectRoot)) return rootLocator',
+        '    return null',
+        '  },',
+        '  getPackageInformation(locator) {',
+        "    if (locator.name === 'pnp-load-content-project') {",
+        '      return {',
+        '        packageLocation: projectRoot,',
+        "        packageDependencies: new Map([['@tanstack/query', 'npm:5.0.0']]),",
+        '      }',
+        '    }',
+        "    if (locator.name === '@tanstack/query') {",
+        '      return {',
+        '        packageLocation: queryRoot,',
+        '        packageDependencies: new Map(),',
+        '      }',
+        '    }',
+        '    return null',
+        '  },',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    process.chdir(root)
+
+    const exitCode = await main(['load', '@tanstack/query#fetching'])
+    const output = stdoutWriteSpy.mock.calls.flat().join('')
+
+    expect(exitCode).toBe(0)
+    expect(output).toContain('fetching')
+    expect(output).toContain('Skill content here.')
+  })
+
+  it('discovers multiple packages via PnP dependency tree', async () => {
+    const root = mkdtempSync(join(realTmpdir, 'intent-cli-pnp-multi-'))
+    tempDirs.push(root)
+
+    const queryDir = join(
+      root,
+      '.yarn',
+      'cache',
+      '@tanstack-query-npm-5.0.0.zip',
+      'node_modules',
+      '@tanstack',
+      'query',
+    )
+    const routerDir = join(
+      root,
+      '.yarn',
+      'cache',
+      '@tanstack-router-npm-1.0.0.zip',
+      'node_modules',
+      '@tanstack',
+      'router',
+    )
+    mkdirSync(queryDir, { recursive: true })
+    mkdirSync(routerDir, { recursive: true })
+    writeJson(join(root, 'package.json'), {
+      name: 'pnp-multi-project',
+      version: '1.0.0',
+      private: true,
+      packageManager: 'yarn@4.0.0',
+      dependencies: {
+        '@tanstack/query': '5.0.0',
+        '@tanstack/router': '1.0.0',
+      },
+    })
+    writeFileSync(join(root, 'yarn.lock'), '')
+    writeJson(join(queryDir, 'package.json'), {
+      name: '@tanstack/query',
+      version: '5.0.0',
+      intent: { version: 1, repo: 'TanStack/query', docs: 'docs/' },
+    })
+    writeSkillMd(join(queryDir, 'skills', 'fetching'), {
+      name: 'fetching',
+      description: 'Query fetching skill',
+    })
+    writeJson(join(routerDir, 'package.json'), {
+      name: '@tanstack/router',
+      version: '1.0.0',
+      intent: { version: 1, repo: 'TanStack/router', docs: 'docs/' },
+    })
+    writeSkillMd(join(routerDir, 'skills', 'routing'), {
+      name: 'routing',
+      description: 'Router skill',
+    })
+
+    const sep = queryDir.includes('/') ? '/' : '\\'
+    writeFileSync(
+      join(root, '.pnp.cjs'),
+      [
+        `const projectRoot = ${JSON.stringify(`${root}${sep}`)}`,
+        `const queryRoot = ${JSON.stringify(`${queryDir}${sep}`)}`,
+        `const routerRoot = ${JSON.stringify(`${routerDir}${sep}`)}`,
+        "const rootLocator = { name: 'pnp-multi-project', reference: 'workspace:.' }",
+        "const queryLocator = { name: '@tanstack/query', reference: 'npm:5.0.0' }",
+        "const routerLocator = { name: '@tanstack/router', reference: 'npm:1.0.0' }",
+        'module.exports = {',
+        '  getDependencyTreeRoots() { return [rootLocator] },',
+        '  findPackageLocator(location) {',
+        '    if (location.startsWith(routerRoot)) return routerLocator',
+        '    if (location.startsWith(queryRoot)) return queryLocator',
+        '    if (location.startsWith(projectRoot)) return rootLocator',
+        '    return null',
+        '  },',
+        '  getPackageInformation(locator) {',
+        "    if (locator.name === 'pnp-multi-project') {",
+        '      return {',
+        '        packageLocation: projectRoot,',
+        "        packageDependencies: new Map([['@tanstack/query', 'npm:5.0.0'], ['@tanstack/router', 'npm:1.0.0']]),",
+        '      }',
+        '    }',
+        "    if (locator.name === '@tanstack/query') {",
+        '      return { packageLocation: queryRoot, packageDependencies: new Map() }',
+        '    }',
+        "    if (locator.name === '@tanstack/router') {",
+        '      return { packageLocation: routerRoot, packageDependencies: new Map() }',
+        '    }',
+        '    return null',
+        '  },',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    process.chdir(root)
+
+    const exitCode = await main(['list', '--json'])
+    const output = logSpy.mock.calls.at(-1)?.[0]
+    const parsed = JSON.parse(String(output)) as {
+      packages: Array<{ name: string }>
+      skills: Array<{ use: string }>
+    }
+
+    expect(exitCode).toBe(0)
+    expect(parsed.packages.map((p) => p.name).sort()).toEqual([
+      '@tanstack/query',
+      '@tanstack/router',
+    ])
+    expect(parsed.skills.map((s) => s.use).sort()).toEqual([
+      '@tanstack/query#fetching',
+      '@tanstack/router#routing',
+    ])
+  })
+
+  it('displays yarn dlx command syntax when PnP is detected', async () => {
+    const root = mkdtempSync(join(realTmpdir, 'intent-cli-pnp-yarn-dlx-'))
+    tempDirs.push(root)
+
+    const queryDir = join(
+      root,
+      '.yarn',
+      'cache',
+      '@tanstack-query-npm-5.0.0.zip',
+      'node_modules',
+      '@tanstack',
+      'query',
+    )
+    mkdirSync(queryDir, { recursive: true })
+    writeJson(join(root, 'package.json'), {
+      name: 'pnp-yarn-dlx-project',
+      version: '1.0.0',
+      private: true,
+      packageManager: 'yarn@4.0.0',
+      dependencies: { '@tanstack/query': '5.0.0' },
+    })
+    writeFileSync(join(root, 'yarn.lock'), '')
+    writeJson(join(queryDir, 'package.json'), {
+      name: '@tanstack/query',
+      version: '5.0.0',
+      intent: { version: 1, repo: 'TanStack/query', docs: 'docs/' },
+    })
+    writeSkillMd(join(queryDir, 'skills', 'fetching'), {
+      name: 'fetching',
+      description: 'Query fetching skill',
+    })
+
+    const sep = queryDir.includes('/') ? '/' : '\\'
+    writeFileSync(
+      join(root, '.pnp.cjs'),
+      [
+        `const projectRoot = ${JSON.stringify(`${root}${sep}`)}`,
+        `const queryRoot = ${JSON.stringify(`${queryDir}${sep}`)}`,
+        "const rootLocator = { name: 'pnp-yarn-dlx-project', reference: 'workspace:.' }",
+        "const queryLocator = { name: '@tanstack/query', reference: 'npm:5.0.0' }",
+        'module.exports = {',
+        '  getDependencyTreeRoots() { return [rootLocator] },',
+        '  findPackageLocator(location) {',
+        '    if (location.startsWith(queryRoot)) return queryLocator',
+        '    if (location.startsWith(projectRoot)) return rootLocator',
+        '    return null',
+        '  },',
+        '  getPackageInformation(locator) {',
+        "    if (locator.name === 'pnp-yarn-dlx-project') {",
+        '      return {',
+        '        packageLocation: projectRoot,',
+        "        packageDependencies: new Map([['@tanstack/query', 'npm:5.0.0']]),",
+        '      }',
+        '    }',
+        "    if (locator.name === '@tanstack/query') {",
+        '      return { packageLocation: queryRoot, packageDependencies: new Map() }',
+        '    }',
+        '    return null',
+        '  },',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    process.chdir(root)
+
+    const exitCode = await main(['list'])
+    const output = logSpy.mock.calls.flat().join('\n')
+
+    expect(exitCode).toBe(0)
+    // With yarn.lock present, should show yarn dlx commands
+    expect(output).toContain('yarn dlx @tanstack/intent@latest')
+    expect(output).toContain('@tanstack/query#fetching')
+  })
+})
+
 describe('package metadata', () => {
   it('uses a package-manager-neutral prepack script', () => {
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {

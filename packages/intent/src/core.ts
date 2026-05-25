@@ -1,5 +1,5 @@
-import { readFileSync, realpathSync } from 'node:fs'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import {
   compileExcludePatterns,
   getEffectiveExcludePatterns,
@@ -186,18 +186,33 @@ function toResolvedIntentSkill(
   realResolvedPath: string
   result: ResolvedIntentSkill
 } {
+  const realPackageRoot = realpathSync.native(
+    resolveFromCwd(cwd, resolved.packageRoot),
+  )
+
   let realResolvedPath: string
   try {
     realResolvedPath = realpathSync.native(resolveFromCwd(cwd, resolved.path))
   } catch {
-    throw new IntentCoreError(
-      'skill-file-not-found',
-      `Resolved skill file was not found: ${resolved.path}`,
-    )
+    const nodeModulesPrefix = `node_modules/${resolved.packageName}/`
+    if (resolved.path.startsWith(nodeModulesPrefix)) {
+      const relativePath = resolved.path.slice(nodeModulesPrefix.length)
+      const fallbackPath = join(realPackageRoot, relativePath)
+      if (existsSync(fallbackPath)) {
+        realResolvedPath = realpathSync.native(fallbackPath)
+      } else {
+        throw new IntentCoreError(
+          'skill-file-not-found',
+          `Resolved skill file was not found: ${resolved.path}`,
+        )
+      }
+    } else {
+      throw new IntentCoreError(
+        'skill-file-not-found',
+        `Resolved skill file was not found: ${resolved.path}`,
+      )
+    }
   }
-  const realPackageRoot = realpathSync.native(
-    resolveFromCwd(cwd, resolved.packageRoot),
-  )
 
   if (!isResolvedPathInsidePackageRoot(realResolvedPath, realPackageRoot)) {
     throw new IntentCoreError(

@@ -370,7 +370,16 @@ describe('loadIntentSkill', () => {
   })
 
   it('uses the full scan in Yarn PnP projects with visible node_modules', () => {
-    writeFileSync(join(root, '.pnp.cjs'), 'module.exports = {}\n')
+    writeFileSync(
+      join(root, '.pnp.cjs'),
+      [
+        'module.exports = {',
+        '  getDependencyTreeRoots() { return [] },',
+        '  getPackageInformation() { return null },',
+        '}',
+        '',
+      ].join('\n'),
+    )
     writeInstalledIntentPackage(root, {
       name: '@tanstack/query',
       version: '5.0.0',
